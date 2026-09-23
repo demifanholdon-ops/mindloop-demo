@@ -1,6 +1,6 @@
 # MindLoop 晨间交接 · 2026-09-24
 
-**软件链路已用真实模型跑通；实体摄像头、马达尚未接到本机，明早接实物验证。没有 Push。**
+**软件链路已用真实模型跑通；实体摄像头、马达尚未接到本机，接实物后继续验证。**
 
 ## 可以同步给团队的改动
 
@@ -28,5 +28,5 @@
 ## 打开与代码
 
 - 双击 `start-live.command`；浏览器打开 **http://127.0.0.1:4173/phone-demo.html**。正式演示数据与4180测试库分开，首次为空，由真实输入创建。
-- 新代码位于本文件所在的 `mindloop-connected/`，Git分支 `codex/live-capture-demo`，基于 GitHub `main@3a3a9b0`。仅本地提交，等你确认再Push。
+- 新代码位于本文件所在的 `mindloop-connected/`，Git分支 `codex/live-capture-demo`，基于 GitHub `main@3a3a9b0`。用户已确认推送，GitHub 接入分支为 `codex/live-capture-demo`；尚未合并进 `main`。
 - 启动/安装见 `README-LIVE.md`；API和硬件衔接见 `hardware/PROTOCOL-LIVE.md`。密钥、模型权重、数据库及测试音频未进入Git。
