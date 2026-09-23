@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f986c0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="启念">
+  <title>MindLoop 启念 · V2.0</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <main id="app" class="phone" aria-label="MindLoop 启念手机应用"></main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="add-dialog" aria-labelledby="add-title">
+    <form id="add-form">
+      <div class="dialog-top"><h2 id="add-title">先帮你记下来</h2><button type="button" class="text-button" data-close>取消</button></div>
+      <label for="event-title">要记住什么</label><input id="event-title" name="title" maxlength="60" placeholder="比如：明天带上充电器" required autofocus>
+      <fieldset class="type-options"><legend class="sr-only">记录类型</legend><label><input type="radio" name="kind" value="todo" checked> Todo · 待办</label><label><input type="radio" name="kind" value="reminder"> Reminder · 提醒</label></fieldset>
+      <div class="form-row"><div><label for="event-date">日期</label><input id="event-date" type="date" name="date" required></div><div id="time-field" hidden><label for="event-time">提醒时间</label><input id="event-time" type="time" name="time"></div></div>
+      <p class="form-note">当前是交互演示，记录保存在本机。Reminder 暂不触发实际提醒。</p>
+      <button class="primary-button" type="submit">记下这件事</button>
+    </form>
+  </dialog>
+  <script type="module" src="./src/app.js?v=20260924-live"></script>
+</body>
+</html>

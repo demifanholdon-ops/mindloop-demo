@@ -1,0 +1,11 @@
+{
+  "name": "mindloop-visual",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check src/character.js && node --check src/app.js && node --check src/data.js && node --check server.mjs && node --check src/live.js && node --check src/pcm-worklet.js",
+    "test": "node --test tests/*.test.js"
+  }
+}

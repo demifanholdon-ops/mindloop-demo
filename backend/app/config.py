@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="MINDLOOP_", env_file=".env")
+    model_config = SettingsConfigDict(env_prefix="MINDLOOP_", env_file=".env", extra="ignore", hide_input_in_errors=True)
 
     app_name: str = "MindLoop API"
     database_url: str = "sqlite+aiosqlite:///./mindloop.db"
