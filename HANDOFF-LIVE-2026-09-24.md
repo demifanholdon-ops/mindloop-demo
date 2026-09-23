@@ -28,5 +28,5 @@
 ## 打开与代码
 
 - 双击 `start-live.command`；浏览器打开 **http://127.0.0.1:4173/phone-demo.html**。正式演示数据与4180测试库分开，首次为空，由真实输入创建。
-- 新代码位于本文件所在的 `mindloop-connected/`，Git分支 `codex/live-capture-demo`，基于 GitHub `main@3a3a9b0`。用户已确认推送，GitHub 接入分支为 `codex/live-capture-demo`；尚未合并进 `main`。
+- 新代码位于本文件所在的 `mindloop-connected/`。现使用自己的私有仓库 [demifanholdon-ops/mindloop-demo](https://github.com/demifanholdon-ops/mindloop-demo)，主分支 `main`。原仓库 `Ivy-forever18/mindloop@3a3a9b0` 保留为来源，未修改原仓库。
 - 启动/安装见 `README-LIVE.md`；API和硬件衔接见 `hardware/PROTOCOL-LIVE.md`。密钥、模型权重、数据库及测试音频未进入Git。

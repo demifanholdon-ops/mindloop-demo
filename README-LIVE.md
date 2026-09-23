@@ -1,6 +1,6 @@
 # MindLoop 粉色 App × 本地处理 × 云端 × 硬件
 
-这是基于 GitHub `main@3a3a9b0` 的本地联调分支。正式演示入口为粉色 V2；GitHub 原吊坠页面保留为独立旧版诊断页面，其 `/api/mindloop/*` 状态不与新 App 混用。此次统一入口全部使用 `/api/live/*`。
+这是独立仓库 [demifanholdon-ops/mindloop-demo](https://github.com/demifanholdon-ops/mindloop-demo) 的实时 Demo，源自 `Ivy-forever18/mindloop@3a3a9b0`。正式演示入口为粉色 V2；GitHub 原吊坠页面保留为独立旧版诊断页面，其 `/api/mindloop/*` 状态不与新 App 混用。此次统一入口全部使用 `/api/live/*`。
 
 ## 启动
 
