@@ -28,7 +28,7 @@
 .live-panel summary span { font-size: 12px; color: #765367; margin-left: 12px; }
 .live-body { padding: 0 18px 16px; max-height: min(65vh,600px); overflow-y: auto; }
 .live-body p { margin: 10px 0; }
-.live-controls { display: flex; gap: 8px; margin: 12px 0; }
+.live-controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .live-panel button, #live-time-dialog button { min-height: 44px; border: 1px solid #c38da8; border-radius: 12px; background: #fbd3e7; color: #402536; padding: 8px 12px; cursor: pointer; font: inherit; }
 .live-panel button[aria-pressed="true"] { background: #573548; color: #fff; }
 .live-panel button:disabled { opacity: .55; cursor: wait; }
@@ -41,3 +41,6 @@
 .live-panel [hidden] { display: none !important; }
 .live-panel :focus-visible { outline: 3px solid #9a416c; outline-offset: 3px; }
 @media (max-width: 600px) { .live-panel { bottom: calc(76px + env(safe-area-inset-bottom)); right: 12px; width: min(350px,calc(100vw - 24px)); } }
+
+.live-panel input[type="checkbox"] { width: 18px; min-height: 18px; vertical-align: middle; margin-right: 6px; }
+#task-camera-device { width: 100%; margin-top: 8px; min-height: 40px; border: 1px solid #c38da8; border-radius: 10px; background: white; color: #402536; }

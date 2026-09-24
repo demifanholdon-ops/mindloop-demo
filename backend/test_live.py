@@ -92,6 +92,7 @@ def api_store(tmp_path,monkeypatch):
     monkeypatch.setattr(live,"frames",[])
     monkeypatch.setattr(live,"speech_lock",asyncio.Lock())
     monkeypatch.setattr(live,"vision_lock",asyncio.Lock())
+    monkeypatch.setattr(live,"continuous_mode",True)
     return value
 
 

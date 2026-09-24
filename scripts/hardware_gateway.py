@@ -130,6 +130,9 @@ async def serial_loop(api,port,camera):
 
 
 async def main(args):
+    if not args.continuous:
+        from evomap_gateway import run
+        return await run(args)
     camera=CameraControl(args.api,args.camera_url)
     if args.serial: await serial_loop(args.api,args.serial,camera)
     elif args.camera_url: await camera_loop(args.api,args.camera_url)
@@ -140,5 +143,6 @@ if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--api',default='http://127.0.0.1:4173')
     p.add_argument('--serial');p.add_argument('--camera-url')
+    p.add_argument('--continuous',action='store_true',help='仅后续迭代：连续录音、5秒视觉与三击回归；后端也需LIVE_CONTINUOUS_MODE=1')
     try: asyncio.run(main(p.parse_args()))
     except KeyboardInterrupt: pass

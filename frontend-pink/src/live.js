@@ -1,8 +1,10 @@
+import {taskCapture} from './task-capture.js';
 const enabled=new URLSearchParams(location.search).get('live')==='1';
 const id=()=>crypto.randomUUID();
 const escape=text=>String(text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const live={enabled,version:-1,state:null,onState:()=>{},onMessage:()=>{}};
 let polling=null,queue=Promise.resolve(),mic=null,cam=null;
+let capture=null;
 const seenClarifications=new Set();
 
 async function api(path,body,method) {
@@ -22,6 +24,7 @@ live.refresh=async()=>{
     if(state.version>=live.version){live.state=state;
       if(state.version!==live.version){live.version=state.version;live.onState(state);}
       showActivity(state);
+      capture?.sync(state).catch(fail);
       const item=state.clarifications.find(e=>!e.cancelled&&!seenClarifications.has(e.id));
       const dialog=document.querySelector('#live-time-dialog');
       if(item&&!dialog.open){seenClarifications.add(item.id);openClarification(item);}
@@ -157,9 +160,25 @@ live.init=async()=>{
     try{const result=await api('/text',{event_id:id(),text:input.value,captured_at:new Date().toISOString()});input.value='';status(result.reply);await live.refresh();}
     catch(error){fail(error);}finally{button.disabled=false;}
   };
-  await live.refresh().then(()=>status('已连接 · 可以开启倾听或摄像头')).catch(fail);
+  await live.refresh().catch(fail);
+  if(live.state?.interaction_mode!=='continuous'){
+    panel.querySelector('summary').textContent='创建任务 · 语音与当前画面';
+    document.querySelector('#live-mic').textContent='录音创建任务';
+    document.querySelector('#live-camera').hidden=true;
+    panel.querySelector('.live-note').textContent='录音最长15秒，结束后生成步骤。可选拍一张当前画面辅助拆解；执行期间不持续录音或看图。';
+    const options=document.createElement('div');
+    options.innerHTML='<label><input id="task-use-camera" type="checkbox"> 创建时使用当前画面</label><select id="task-camera-device" aria-label="摄像头"><option value="">默认摄像头</option></select><div class="live-controls"><button data-key="k1" data-gesture="single">K1 单击</button><button data-key="k1" data-gesture="double">撤回一步</button><button data-key="k1" data-gesture="long">暂存／新建</button><button data-key="k2" data-gesture="single">K2 卡住／重做</button><button data-key="k2" data-gesture="double">换方法</button><button data-key="k2" data-gesture="long">恢复任务</button></div>';
+    document.querySelector('#live-text-form').before(options);
+    capture=taskCapture({api,status,refresh:live.refresh,onMessage:live.onMessage});
+    document.querySelector('#task-use-camera').onchange=e=>{if(!e.target.checked)capture.disableCamera();};
+    document.querySelector('#live-mic').onclick=()=>capture.toggle().catch(fail);
+    options.querySelectorAll('[data-key]').forEach(b=>b.onclick=()=>capture.button(b.dataset.key,b.dataset.gesture).catch(fail));
+    document.querySelector('#live-text-form').onsubmit=async e=>{e.preventDefault();const input=document.querySelector('#live-text');try{await capture.text(input.value);input.value='';}catch(error){fail(error);}};
+    status('已连接 · 创建任务时录音或输入目标');
+  }else status('后续迭代模式 · 连续语音与定时视觉');
   setInterval(()=>{if(!document.hidden)live.refresh().catch(()=>status('服务连接中断，请检查本机服务'));},1000);
   addEventListener('pagehide',()=>{
+    capture?.dispose();
     stopMic(false);
     if(cam){navigator.sendBeacon('/api/live/camera/stop',new Blob([JSON.stringify({session_id:cam.session})],{type:'application/json'}));cam.stream.getTracks().forEach(t=>t.stop());}
   });

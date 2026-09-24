@@ -18,7 +18,8 @@ from pydantic import BaseModel, Field
 
 from main import app
 from live_audio import Segmenter
-from live_models import Cloud, Item
+from live_models import Cloud, Item, Decision
+import live_legacy as legacy
 from local_asr import LocalASR
 from live_store import Store, FocusSession, now, uid, check_date, check_clock, TZ
 
@@ -34,6 +35,10 @@ vision_lock = asyncio.Lock()
 camera = None
 frames = []
 device = {"last_seen": 0, "device_id": None, "capabilities": {}}
+continuous_mode = os.getenv('LIVE_CONTINUOUS_MODE') == '1'
+legacy_busy = False
+legacy_frame = None
+legacy_recording_until = 0
 
 
 @asynccontextmanager
@@ -110,7 +115,9 @@ def cached(event_id, fp):
 
 @app.get("/api/live/state")
 async def state():
-    return {**store.snapshot(), "models": {**cloud.status(), "asr_provider": asr_provider, "local_asr_ready": local_asr.model is not None}, "camera_session": camera.id if camera else None,
+    return {**store.snapshot(), 'interaction_mode': 'continuous' if continuous_mode else 'evomap',
+            'session': {**legacy.session(store), 'generating': legacy_busy, 'recording': time.monotonic() < legacy_recording_until},
+            "models": {**cloud.status(), "asr_provider": asr_provider, "local_asr_ready": local_asr.model is not None}, "camera_session": camera.id if camera else None,
             "hardware": {"connected": time.monotonic()-device['last_seen'] < 15,
                          "haptic": device['capabilities'].get('haptic_pattern',False),
                          "device_id": device['device_id']}}
@@ -159,9 +166,113 @@ async def text_input(body: TextInput):
         raise HTTPException(502, str(exc))
 
 
+class CaptureInput(BaseModel):
+    event_id: str = Field(min_length=1, max_length=100)
+    text: str | None = Field(default=None, max_length=6000)
+    pcm: str | None = Field(default=None, max_length=640000)
+    image: str | None = Field(default=None, max_length=1500100)
+    use_camera: bool = False
+
+
+@app.post('/api/live/legacy/frame')
+async def legacy_camera_frame(body: dict):
+    global legacy_frame
+    if not body.get('image'):
+        legacy_frame = None
+        return {'ok': True}
+    try: image = legacy.validate_image(body['image'])
+    except ValueError as exc: raise HTTPException(422, str(exc))
+    legacy_frame = (image, time.monotonic())
+    return {'ok': True}
+
+
+@app.post('/api/live/legacy/recording')
+async def legacy_recording(body: dict):
+    global legacy_recording_until
+    legacy_recording_until = time.monotonic()+20 if body.get('recording') else 0
+    return {'ok': True}
+
+
+@app.post('/api/live/legacy/task')
+async def create_captured_task(body: CaptureInput):
+    global legacy_busy, legacy_frame, legacy_recording_until
+    fp = fingerprint(body.model_dump())
+    prior = cached(body.event_id, fp)
+    if prior: return prior
+    if legacy_busy: raise HTTPException(409, '正在生成任务，请稍候')
+    try:
+        image = legacy.validate_image(body.image)
+        wav = legacy.pcm_wav(body.pcm) if body.pcm is not None else None
+        if not wav and not (body.text or '').strip(): raise ValueError('请录音或输入任务目标')
+    except ValueError as exc: raise HTTPException(422, str(exc))
+    if not image and body.use_camera and legacy_frame and time.monotonic()-legacy_frame[1] < 8:
+        image = legacy_frame[0]
+    legacy_frame = None
+    legacy_recording_until = 0
+    legacy_busy = True
+    try:
+        async with speech_lock:
+            text, asr_ms = await local_asr.transcribe(wav) if wav else (body.text.strip(), 0)
+            task, scene, model_ms = await cloud.task_from_capture(text, image)
+            if store.data['active_task_id']:
+                store.data['hardware_last_task_id'] = store.data['active_task_id']
+            store.apply(Decision(tasks=[task]), store.context(), 'speech', now())
+            result = {'event_id': body.event_id, 'text': text, 'reply': f'已拆成 {len(task.steps)} 个小步骤。',
+                      'observation': scene, 'timings': {'asr_ms': asr_ms, 'model_ms': model_ms}}
+            store.activity({'source': 'task_capture', **result})
+            store.remember(body.event_id, fp, result)
+            return result
+    except (RuntimeError, ValueError, KeyError, IndexError, TypeError) as exc:
+        raise HTTPException(502, str(exc) if isinstance(exc, RuntimeError) else '模型结果无效，任务未修改')
+    finally:
+        legacy_busy = False
+
+
+class ButtonInput(BaseModel):
+    event_id: str = Field(min_length=1, max_length=100)
+    key: str = Field(pattern='^k[12]$')
+    gesture: str = Field(pattern='^(single|double|long)$')
+    recording: bool = False
+
+
+@app.post('/api/live/legacy/button')
+async def legacy_button(body: ButtonInput):
+    global legacy_busy
+    fp = fingerprint(body.model_dump())
+    prior = cached(body.event_id, fp)
+    if prior: return prior
+    if legacy_busy: raise HTTPException(409, '正在生成任务，请稍候')
+    current = legacy.session(store)
+    action = legacy.action_for(current['state'], body.key, body.gesture, body.recording)
+    reply = {'done': '已完成当前步骤', 'undo': '已撤回上一步', 'new': '已暂存，可录入新任务',
+             'resume': '已恢复上次任务', 'redo': '可以重做最后一步', 'ignore': '当前状态下此按键无操作'}.get(action, '')
+    try:
+        if action in {'stuck', 'help'}:
+            legacy_busy = True
+            step = current['current_step']
+            revision = step['revision']
+            title = await cloud.revise_step(store.task(current['task_id'])['title'], step['title'], action)
+            if store.data['active_task_id'] != current['task_id'] or step['revision'] != revision:
+                raise HTTPException(409, '步骤已被更新，本次建议未覆盖新进度')
+            step.update(title=title, revision=revision+1)
+            step.pop('visual_progress', None)
+            reply = '当前步骤已调整：'+title
+        else:
+            legacy.apply_button(store, action)
+        result = {'action': action, 'reply': reply, 'session': legacy.session(store)}
+        if reply and action != 'ignore': store.activity({'source': 'hardware_button', 'reply': reply})
+        store.remember(body.event_id, fp, result)
+        return result
+    except ValueError as exc: raise HTTPException(409, str(exc))
+    except RuntimeError as exc: raise HTTPException(502, str(exc))
+    finally:
+        if action in {'stuck', 'help'}: legacy_busy = False
+
+
 @app.post("/api/live/camera/start")
 async def start_camera():
     global camera
+    if not continuous_mode: raise HTTPException(409, '定时视觉分析已归档为后续迭代；当前仅创建任务时看图')
     if camera: raise HTTPException(409, "已有摄像头会话，请先关闭再切换")
     camera = FocusSession(); frames.clear()
     return {"session_id": camera.id}
@@ -338,6 +449,8 @@ async def latency(body: dict):
 
 @app.websocket("/api/live/audio")
 async def audio_socket(ws: WebSocket):
+    if not continuous_mode:
+        await ws.close(code=1008); return
     origin = ws.headers.get("origin")
     if origin and origin != "http://" + ws.headers.get("host", ""):
         await ws.close(code=1008); return
