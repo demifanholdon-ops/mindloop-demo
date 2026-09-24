@@ -17,6 +17,9 @@ bool advertisingStarted = false;
 bool hapticReady = false;
 uint32_t lastHostSeen = 0;
 bool hostOfflineShown = true;
+bool gatewayLinked = false;
+bool agentReady = false;
+volatile int8_t pendingBleLinkEvent = 0;
 static constexpr uint8_t DRV2605_ADDR = 0x5A;
 uint8_t frame[1600];
 // Preallocated RGB565 line buffer (160 px) so the batch path needs no heap
@@ -52,6 +55,24 @@ bool stopPending = false;
 bool micReady = false;
 uint32_t recordingStarted = 0;
 uint32_t audioSeq = 0;
+
+void showLinkState(const char *line1, const char *line2, const char *line3 = nullptr) {
+  if (!displayReady) return;
+  display.fillScreen(TFT_BLACK);
+  display.setTextColor(TFT_WHITE, TFT_BLACK);
+  display.setTextSize(1);
+  display.setCursor(8, 10); display.print(line1);
+  display.setCursor(8, 31); display.print(line2);
+  if (line3) { display.setCursor(8, 52); display.print(line3); }
+}
+
+void onBleConnected(uint16_t) {
+  pendingBleLinkEvent = 1;
+}
+
+void onBleDisconnected(uint16_t, uint8_t) {
+  pendingBleLinkEvent = -1;
+}
 
 void onPdmReceive() {
   int available = PDM.available();
@@ -131,22 +152,21 @@ void stopRecording(bool ble) {
 
 void reply(const String &line, bool ble) {
   if (ble) {
-    // BLEUart's unbuffered notify path splits at the negotiated MTU (up to
-    // 244 bytes with the 247 MTU negotiated by the S3 central) and returns
-    // false when the SoftDevice hvn queue is full. Passing the whole line
-    // at once cuts a 3,300-byte frame from ~165 20-byte notifications to
-    // ~14, and the retry loop handles backpressure instead of the old fixed
-    // 20-byte chunking that stalled every chunk for up to 2 s.
+    // Notifications are not acknowledged at the application layer. Explicit
+    // 20-byte chunks avoid the occasional missing byte observed when a whole
+    // ready JSON line was handed to BLEUart at once. Retrying zero/partial
+    // writes handles SoftDevice queue backpressure without corrupting a line.
     String packet = line + '\n';
     uint32_t deadline = millis() + 4000;
     size_t total = packet.length();
-    while (Bluefruit.connected() && (int32_t)(millis() - deadline) < 0) {
-      // BLEUart::write returns len only when the whole notify completed; it
-      // returns 0 when the hvn queue is full. Retry the entire remainder.
-      if (uart.write((const uint8_t *)packet.c_str(), total) == total) break;
-      delay(1);
+    size_t offset = 0;
+    while (offset < total && Bluefruit.connected() && (int32_t)(millis() - deadline) < 0) {
+      size_t count = min((size_t)20, total - offset);
+      size_t written = uart.write((const uint8_t *)packet.c_str() + offset, count);
+      if (written > 0) offset += written;
+      else delay(2);
     }
-    if (!Bluefruit.connected() || (int32_t)(millis() - deadline) >= 0) {
+    if (offset != total) {
       if (Serial) Serial.println("{\"event\":\"error\",\"reason\":\"ble_notify_timeout\"}");
       Bluefruit.disconnect(Bluefruit.connHandle());
     }
@@ -194,7 +214,29 @@ void command(char *line, bool ble) {
     hostOfflineShown = false;
   }
   if (!strcmp(cmd, "hello")) {
-    reply(String("{\"event\":\"ready\",\"firmware\":\"mindloop-0.7\",\"width\":160,\"height\":80,\"haptic\":") + (hapticReady ? "true" : "false") + ",\"microphone\":" + (micReady ? "true" : "false") + ",\"display\":" + (displayReady ? "true}" : "false}"), ble);
+    gatewayLinked = ble;
+    agentReady = doc["agent_ready"] | !ble;
+    if (agentReady) showLinkState("MindLoop Ready", "Agent connected", "K1: voice input");
+    else if (ble) showLinkState("MindLoop Ready", "S3 connected", "Waiting for Agent");
+    reply(String("{\"event\":\"ready\",\"firmware\":\"mindloop-0.8\",\"width\":160,\"height\":80,\"haptic\":") + (hapticReady ? "true" : "false") + ",\"microphone\":" + (micReady ? "true" : "false") + ",\"display\":" + (displayReady ? "true" : "false") + ",\"gateway_linked\":" + (gatewayLinked ? "true" : "false") + ",\"agent_ready\":" + (agentReady ? "true}" : "false}"), ble);
+  } else if (!strcmp(cmd, "gateway_status")) {
+    gatewayLinked = ble || (doc["gateway_linked"] | gatewayLinked);
+    agentReady = doc["agent_ready"] | false;
+    lastHostSeen = millis();
+    hostOfflineShown = false;
+    const char *gatewayState = doc["state"] | "waiting_cloud";
+    if (agentReady) showLinkState("MindLoop Ready", "Agent connected", "K1: voice input");
+    else if (!strcmp(gatewayState, "setup_required")) showLinkState("S3 connected", "Setup WiFi", "MindLoop-Setup");
+    else if (!strcmp(gatewayState, "wifi_connecting")) showLinkState("S3 connected", "Connecting WiFi", "Please wait");
+    else if (!strcmp(gatewayState, "key_required")) showLinkState("S3 connected", "API key required", "MindLoop-Setup");
+    else if (!strcmp(gatewayState, "agent_starting")) showLinkState("S3 connected", "Cloud configured", "Agent starting");
+    else if (gatewayLinked) showLinkState("MindLoop Ready", "S3 connected", "Waiting for cloud");
+    else showLinkState("MindLoop Ready", "Auto connecting...", "USB or S3");
+    // Periodic gateway heartbeats are one-way. An optional acknowledgement is
+    // available for diagnostics without creating continuous BLE notifications.
+    if (doc["ack"] | false) {
+      reply(String("{\"event\":\"gateway_status\",\"gateway_linked\":") + (gatewayLinked ? "true" : "false") + ",\"agent_ready\":" + (agentReady ? "true}" : "false}"), ble);
+    }
   } else if (!strcmp(cmd, "ble_status")) {
     JsonDocument status;
     status["event"] = "ble_status";
@@ -272,10 +314,7 @@ void setup() {
     display.setTextSize(1);
     display.setCursor(39, 48); display.print("Starting...");
     delay(1200);
-    display.fillScreen(TFT_BLACK);
-    display.setCursor(8, 10); display.print("MindLoop Ready");
-    display.setCursor(8, 31); display.print("Connect computer");
-    display.setCursor(8, 52); display.print("Waiting for Agent");
+    showLinkState("MindLoop Ready", "Auto connecting...", "USB or S3");
   }
   PDM.setPins(D1, D0, -1);
   PDM.onReceive(onPdmReceive);
@@ -285,6 +324,8 @@ void setup() {
   hapticReady = initHaptic();
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
   bleReady = Bluefruit.begin();
+  Bluefruit.Periph.setConnectCallback(onBleConnected);
+  Bluefruit.Periph.setDisconnectCallback(onBleDisconnected);
   Bluefruit.Periph.setConnInterval(6, 12);
   Bluefruit.setName("MindLoop");
   uart.begin();
@@ -297,14 +338,26 @@ void setup() {
   advertisingStarted = Bluefruit.Advertising.start(0);
 }
 void loop() {
+  int8_t linkEvent = pendingBleLinkEvent;
+  if (linkEvent) {
+    pendingBleLinkEvent = 0;
+    // A BLE reconnect starts a new line-oriented session. Discard any
+    // unfinished JSON left by the previous connection before accepting hello.
+    bleInput.length = 0;
+    bleInput.overflow = false;
+    gatewayLinked = linkEvent > 0;
+    agentReady = false;
+    lastHostSeen = millis();
+    hostOfflineShown = false;
+    if (gatewayLinked) showLinkState("MindLoop Ready", "S3 connected", "Waiting for Agent");
+    else showLinkState("Connection lost", "Auto reconnecting", "USB or S3");
+  }
   if (!hostOfflineShown && millis() - lastHostSeen > 8000 && !recording) {
     hostOfflineShown = true;
-    if (displayReady) {
-      display.fillScreen(TFT_BLACK);
-      display.setTextSize(1);
-      display.setCursor(8, 18); display.print("Connection lost");
-      display.setCursor(8, 42); display.print("Waiting for Agent");
-    }
+    agentReady = false;
+    gatewayLinked = Bluefruit.connected();
+    if (gatewayLinked) showLinkState("MindLoop Ready", "S3 connected", "Waiting for Agent");
+    else showLinkState("Connection lost", "Auto reconnecting", "USB or S3");
   }
   consume(Serial, usbInput, false);
   consume(uart, bleInput, true);

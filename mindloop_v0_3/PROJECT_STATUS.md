@@ -1,5 +1,12 @@
 # MindLoop V0.3 Status
 
+## 2026-09-24 nRF52840 firmware 0.8
+
+- Removed the computer-only startup wording. The display now distinguishes automatic USB/S3 connection, an attached S3 gateway, and an Agent-ready link.
+- Added `gateway_linked` and `agent_ready` to the ready handshake plus a `gateway_status` command for the future standalone S3 runtime.
+- Compiled and flashed on the real nRF52840; the S3 automatically reconnected and received `gateway_linked=true, agent_ready=false`. The USB bridge then reconnected, reported firmware 0.8, and acknowledged display frame 1.
+- This removes the nRF-side dependency and misleading startup state. Full computer-free voice/LLM operation still requires moving transcription and the cloud Agent runtime to the Wi-Fi-capable S3.
+
 ## 软件完成度
 - [x] Task initiation Agent
 - [x] Atomic action decomposition

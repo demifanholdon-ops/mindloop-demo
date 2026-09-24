@@ -1,6 +1,6 @@
 # MindLoop XIAO firmware
 
-Current firmware: **0.6**. Current controls and limitations: [Interaction guide](../../docs/INTERACTION.md). Older descriptions below are superseded by this guide.
+Current firmware: **0.8**. Current controls and limitations: [Interaction guide](../../docs/INTERACTION.md). Older descriptions below are superseded by this guide.
 
 
 Target: XIAO nRF52840 Plus + 0.96-inch IPS; no external hardware.

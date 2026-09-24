@@ -1,13 +1,17 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <ArduinoJson.h>
+#include <ESP_I2S.h>
 #include "wearable_ble.h"
+#include "standalone_config.h"
 
 // USB control and Nordic UART BLE Central for the nRF52840 wearable, plus a
 // bench diagnostic path for the DRV2605L haptic driver wired to the reSpeaker
 // Flex header. Nothing here drives the motor unless a haptic command arrives.
 unsigned long lastHeartbeat = 0;
 unsigned long sequence = 0;
+I2SClass audioI2s;
+bool audioI2sReady = false;
 
 // reSpeaker Flex official examples use the XIAO default Wire bus (GPIO5/6),
 // the same bus that configures the XVF3800 (slave 0x2C).
@@ -168,6 +172,59 @@ void pinLevelCommand() {
   serializeJson(result, Serial); Serial.println();
 }
 
+bool beginAudioBus() {
+  if (audioI2sReady) return true;
+  // Official reSpeaker XVF3800/XIAO mapping: BCLK=8, WS=7,
+  // playback=44 and microphone RX=43; 16 kHz stereo, 32-bit slots.
+  audioI2s.setPins(8, 7, 44, 43);
+  audioI2sReady = audioI2s.begin(
+    I2S_MODE_STD, 16000, I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO
+  );
+  return audioI2sReady;
+}
+
+void audioProbeCommand(JsonDocument &doc) {
+  JsonDocument result;
+  result["event"] = "audio_probe";
+  result["sample_rate"] = 16000;
+  result["channels"] = 2;
+  result["bits"] = 32;
+  if (!beginAudioBus()) {
+    result["ok"] = false;
+    result["reason"] = "i2s_init_failed";
+    serializeJson(result, Serial); Serial.println();
+    return;
+  }
+  uint32_t duration = constrain((int)(doc["duration_ms"] | 1000), 100, 5000);
+  int32_t samples[256];
+  uint64_t absoluteTotal = 0;
+  uint32_t peak = 0, nonzero = 0, count = 0, bytes = 0;
+  uint32_t deadline = millis() + duration;
+  while ((int32_t)(millis() - deadline) < 0) {
+    size_t got = audioI2s.readBytes((char *)samples, sizeof(samples));
+    bytes += got;
+    size_t sampleCount = got / sizeof(samples[0]);
+    for (size_t i = 0; i < sampleCount; ++i) {
+      int64_t value = samples[i];
+      uint32_t magnitude = value < 0 ? (uint32_t)(-value) : (uint32_t)value;
+      if (magnitude) nonzero++;
+      if (magnitude > peak) peak = magnitude;
+      absoluteTotal += magnitude;
+    }
+    count += sampleCount;
+    Wearable::poll();
+  }
+  result["ok"] = bytes > 0;
+  result["duration_ms"] = duration;
+  result["bytes"] = bytes;
+  result["samples"] = count;
+  result["nonzero"] = nonzero;
+  result["peak"] = peak;
+  result["mean_abs"] = count ? absoluteTotal / count : 0;
+  if (!bytes) result["reason"] = "no_i2s_data";
+  serializeJson(result, Serial); Serial.println();
+}
+
 // Only reached from an explicit USB command; never fires on its own.
 void hapticCommand(JsonDocument &doc) {
   beginHapticBus();
@@ -229,8 +286,9 @@ void setup() {
   Serial.begin(115200);
   unsigned long start = millis();
   while (!Serial && millis() - start < 1500) delay(10);
-  emit("{\"event\":\"hello\",\"firmware\":\"mindloop-s3-0.4\",\"node\":\"esp32-s3\",\"imu\":false,\"wifi\":true,\"ble\":true}");
+  emit("{\"event\":\"hello\",\"firmware\":\"mindloop-s3-0.5\",\"node\":\"esp32-s3\",\"imu\":false,\"wifi\":true,\"ble\":true}");
   Wearable::begin();
+  StandaloneConfig::begin();
 }
 
 void loop() {
@@ -263,6 +321,8 @@ void loop() {
       pinLevelCommand();
     } else if (cmd == "haptic") {
       hapticCommand(doc);
+    } else if (cmd == "audio_probe") {
+      audioProbeCommand(doc);
     } else if (cmd == "ble_send") {
       if (!doc["payload"].is<JsonObject>()) {
         emit("{\"event\":\"error\",\"reason\":\"invalid_payload\"}"); continue;
@@ -271,7 +331,19 @@ void loop() {
       if (payload.length() > 3599) emit("{\"event\":\"error\",\"reason\":\"payload_too_long\"}");
       else if (!Wearable::send(payload)) emit("{\"event\":\"error\",\"reason\":\"wearable_write_failed\"}");
     } else if (cmd == "hello") {
-      emit("{\"event\":\"hello\",\"firmware\":\"mindloop-s3-0.4\",\"node\":\"esp32-s3\",\"imu\":false,\"wifi\":true,\"ble\":true}");
+      emit("{\"event\":\"hello\",\"firmware\":\"mindloop-s3-0.5\",\"node\":\"esp32-s3\",\"imu\":false,\"wifi\":true,\"ble\":true}");
+    } else if (cmd == "standalone_status") {
+      StandaloneConfig::emitStatus();
+    } else if (cmd == "configure_cloud") {
+      const char *apiKey = doc["api_key"] | "";
+      const char *model = doc["model"] | "deepseek-ai/DeepSeek-V4-Flash";
+      bool ok = StandaloneConfig::configureCloud(apiKey, model);
+      emit(ok ? "{\"event\":\"cloud_configured\",\"ok\":true}" :
+                "{\"event\":\"cloud_configured\",\"ok\":false}");
+    } else if (cmd == "reset_standalone_config") {
+      emit("{\"event\":\"standalone_config_resetting\"}");
+      delay(50);
+      StandaloneConfig::reset();
     } else if (cmd == "ping") {
       emit("{\"event\":\"pong\"}");
     } else if (cmd == "context" || cmd == "drift") {
@@ -280,6 +352,11 @@ void loop() {
       serializeJson(doc, Serial); Serial.println();
     } else emit("{\"event\":\"error\",\"reason\":\"unsupported_command\"}");
   }
+  StandaloneConfig::poll();
+  if (StandaloneConfig::configPortalActive()) Wearable::setAgentState("setup_required");
+  else if (!StandaloneConfig::wifiConnected()) Wearable::setAgentState("wifi_connecting");
+  else if (!StandaloneConfig::apiKeyConfigured()) Wearable::setAgentState("key_required");
+  else Wearable::setAgentState("agent_starting");
   // Do not block in a scan while a serial command is being assembled.
   if (used == 0 && !overflow) Wearable::poll();
 }

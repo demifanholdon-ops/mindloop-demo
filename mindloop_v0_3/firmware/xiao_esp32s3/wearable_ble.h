@@ -17,6 +17,9 @@ static size_t length = 0;
 static bool overflow = false;
 static uint32_t nextScan = 0;
 static bool linked = false;
+static bool agentReady = false;
+static char agentState[24] = "waiting_cloud";
+static uint32_t nextStatus = 0;
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool lost = false;
 
@@ -51,6 +54,18 @@ static bool send(const String &line) {
   return true;
 }
 
+static void setAgentReady(bool ready) {
+  agentReady = ready;
+  nextStatus = 0;
+}
+
+static void setAgentState(const char *state) {
+  const char *next = state ? state : "waiting_cloud";
+  if (!strcmp(agentState, next)) return;
+  strlcpy(agentState, next, sizeof(agentState));
+  nextStatus = 0;
+}
+
 static void begin() {
   events = xQueueCreate(8, sizeof(Line));
   if (!events) { Serial.println("{\"event\":\"error\",\"reason\":\"ble_queue_allocation\"}"); return; }
@@ -80,6 +95,12 @@ static void poll() {
     Serial.println("{\"event\":\"ble_disconnected\"}");
     nextScan = millis() + 3000;
   }
+  if (linked && client->isConnected() && (int32_t)(millis() - nextStatus) >= 0) {
+    String status = String("{\"cmd\":\"gateway_status\",\"gateway_linked\":true,\"agent_ready\":") +
+                    (agentReady ? "true" : "false") + ",\"state\":\"" + agentState + "\"}";
+    if (!send(status)) Serial.println("{\"event\":\"error\",\"reason\":\"gateway_status_failed\"}");
+    nextStatus = millis() + 3000;
+  }
   if (linked || (int32_t)(millis() - nextScan) < 0 || Serial.available()) return;
   BLEScan *scan = BLEDevice::getScan();
   BLEScanResults *results = scan->start(2, false);
@@ -107,10 +128,9 @@ static void poll() {
     }
     tx->registerForNotify(notify);
     linked = true;
+    nextStatus = 0;
     Serial.printf("{\"event\":\"ble_connected\",\"mtu\":%u}\n", client->getMTU());
-    // Terminate any partial line left in the peripheral by a lost link.
-    // Its parser may report invalid_json for this resynchronization newline.
-    if (!send("") || !send("{\"cmd\":\"hello\"}"))
+    if (!send("{\"cmd\":\"hello\",\"role\":\"gateway\",\"agent_ready\":false}"))
       Serial.println("{\"event\":\"error\",\"reason\":\"wearable_write_failed\"}");
     break;
   }

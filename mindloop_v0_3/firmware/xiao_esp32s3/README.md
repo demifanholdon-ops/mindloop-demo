@@ -86,6 +86,23 @@ header labelled `X0Dxx`/`X1Dxx` is the *External XVF3800 IO* header, whose pins
 belong to the XVF3800 (XMOS port names), not to the XIAO; the XIAO I²C bus is
 the row labelled `I2C_SDA`/`I2C_SCL`.
 
+## Standalone gateway setup (0.5)
+
+The S3 keeps the nRF52840 link alive with a one-way gateway heartbeat and
+starts a non-blocking provisioning portal when Wi-Fi or the SiliconFlow key is
+missing. Connect to Wi-Fi `MindLoop-Setup` with password `mindloop-setup`, open
+`192.168.4.1`, choose the target Wi-Fi and enter the SiliconFlow API key. The
+credentials are stored in ESP32 NVS and are never printed over serial.
+
+`{"cmd":"standalone_status"}` reports only booleans and portal state. Use
+`{"cmd":"reset_standalone_config"}` to erase the saved setup.
+`{"cmd":"audio_probe","duration_ms":1500}` verifies the official reSpeaker
+I²S input (BCLK 8, WS 7, RX 43; 16 kHz stereo, 32-bit) without retaining audio.
+The first real-board probe returned 190,464 bytes and 47,616 non-zero samples.
+Cloud Agent execution remains disabled until provisioning and its live ASR/LLM
+acceptance test are complete; `standalone_status.agent_runtime` therefore stays
+false instead of presenting setup as a working Agent.
+
 ## Bench acceptance (pending)
 
 1. Power the nRF running existing 0.3 firmware; connect S3 USB and open serial.

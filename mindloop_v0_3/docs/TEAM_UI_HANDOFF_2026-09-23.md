@@ -62,7 +62,7 @@ flowchart LR
 ### 4.1 一次正常体验
 
 1. Mac 启动 Agent 和 USB bridge，nRF 接数据 USB。
-2. 开机显示 `MindLoop Ready / Connect computer / Waiting for Agent`；这是等待连接，**此时不表示可以录音**。
+2. 0.8 开机显示 `MindLoop Ready / Auto connecting... / USB or S3`；S3 握手后显示 `S3 connected`，Agent 可用后显示 `Agent connected / K1: voice input`。只有 Agent 已连接时才表示可以开始完整语音任务。
 3. 桥接成功后显示“按 K1 开始语音输入”。
 4. 单击 K1，说具体目标，例如“我要准备明天五分钟的项目汇报”。
 5. 再单击 K1 结束；最长 15 秒会自动停止。说完后等待识别和云端生成。
@@ -409,7 +409,7 @@ AGENT_PROVIDER=mock .venv/bin/python -m unittest discover -s tests -q
 
 | 现象 | 优先排查 |
 |---|---|
-| Ready / Connect computer / Waiting for Agent | 服务和 bridge 是否运行、正确端口、是否被别的进程占用 |
+| Auto connecting / S3 connected / Waiting for Agent | 前者检查 USB/S3 链路；后者表示 BLE 网关已连接，但 S3 独立云端 Agent 尚未运行，可启动电脑 bridge 或继续部署 S3 Agent |
 | 录音中回启动页/USB消失 | 查 bridge 日志、固件是否0.7、复现音频稳定性；与15秒正常停止区分 |
 | 语音识别失败 | Whisper缓存、声音强度、录音长度、音频丢块；不要先检查云端 Key |
 | 能转文字但没有步骤 | 502 detail、云端余额/权限/模型/网络；20秒模型超时 |
