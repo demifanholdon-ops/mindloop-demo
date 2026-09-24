@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+npm-debug.log*
+
+# macOS metadata and firmware build artifacts
+.DS_Store
+mindloop_v0_3/firmware/build*/
+mindloop_v0_3/firmware/xiao_esp32s3/build/
+
+# Local API credentials
+/api.md

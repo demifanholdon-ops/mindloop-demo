@@ -1,0 +1,10 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+mindloop/data/memory.json
+
+firmware/vendor/
+firmware/build/
+firmware/recovery/*.uf2

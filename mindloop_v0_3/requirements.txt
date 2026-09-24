@@ -1,0 +1,11 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+httpx==0.28.1
+pydantic==2.11.7
+python-dotenv==1.1.1
+bleak==1.0.1
+
+pyserial==3.5
+Pillow==11.3.0
+mlx-whisper==0.4.3
+sounddevice==0.5.5
