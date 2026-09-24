@@ -1,9 +1,11 @@
 # EvoMap 当前演示交接 · 2026-09-24
 
-## 两个版本
+## 主版本与保留方案
 
-- `main`：当前联调，参照 `lirc0618/EvoMap@63dd7ec`。保持粉色App，用EvoMap旧按键及任务创建时采集。
+- `main`：项目唯一主版本，统一前端、后端和硬件接入；当前交互参照 `lirc0618/EvoMap@63dd7ec`。保持粉色App，用EvoMap旧按键及任务创建时采集。
 - `future-iteration`：昨天完整代码原样保留，提交 `f2a8e3e4d764671b79ed7fc78154917010b4ed08`。连续句末上传、每5秒自动识别和原单/双/三击方案留待后续。
+
+两个外部仓库另存为 `reference-evomap`（参考）和 `history-backend`（历史参考），均不覆盖主版本。见 [分支说明](BRANCHES.md)。
 
 ## 当前链路
 
